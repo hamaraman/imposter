@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import opencascade from "replicad-opencascadejs";
 import { setOC } from "replicad";
-import { newDocument, evaluate, History, setParameter, toggleSuppress, type CadDocument } from "@my-cad/core";
+import { evaluate, History, setParameter, type CadDocument } from "@my-cad/core";
 import { buildDocument } from "@my-cad/kernel";
 
 const require = createRequire(new URL("./package.json", import.meta.url));
@@ -68,9 +68,11 @@ describe("커널 오라클", () => {
 });
 
 describe("파라메트릭 재계산 + Undo (F-16, F-21)", () => {
-  it("파라미터를 바꾸면 모델이 다시 계산되고, Undo로 원래대로", () => {
-    const h = new History(newDocument());
-    h.run(toggleSuppress("f2")); h.run(toggleSuppress("f3")); // 박스만 남김
+  it("파라미터를 바꾸면 모델이 다시 계산되고, Undo로 원래대로 (M0 박스 피처)", () => {
+    const h = new History(docWith(
+      [{ id: "a", type: "box", name: "b", params: { width: "40", depth: "30", height: "height" } }],
+      [{ name: "height", expr: "10", unit: "mm" }],
+    ));
     expect(buildDocument(h.current).volume).toBeCloseTo(40 * 30 * 10, 6);
     h.run(setParameter("height", "20"));
     expect(buildDocument(h.current).volume).toBeCloseTo(40 * 30 * 20, 6);

@@ -23,3 +23,43 @@ fieldset.dim { opacity: .45; }
 .chip.rolled { opacity: .3; border-style: dashed; }
 .chip.err { border-color: #dc2626; color: #b91c1c; background: #fef2f2; }
 .status { margin-left: auto; color: #475569; }
+
+/* M1: 메뉴, 선택, 속성 패널 */
+.menu { position: relative; }
+.menu-items { display: none; position: absolute; top: 100%; left: 0; z-index: 10; background: #334155; border-radius: 4px; padding: 4px; flex-direction: column; gap: 2px; min-width: 110px; }
+.menu:hover .menu-items, .menu:focus-within .menu-items { display: flex; }
+.chip.sel { border-color: #f59e0b; box-shadow: 0 0 0 2px #fde68a; }
+.panel select { width: 120px; padding: 3px; }
+.panel .row { display: flex; gap: 6px; margin-top: 10px; }
+.panel button { border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.panel button.wide { width: 100%; margin-top: 6px; }
+.panel button.danger { color: #b91c1c; border-color: #fca5a5; }
+.error { color: #b91c1c; background: #fef2f2; padding: 6px 8px; border-radius: 4px; }
+.constraints { list-style: none; padding: 0; margin: 0; }
+.constraints li { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-bottom: 1px solid #eef2f6; }
+.constraints li > span:first-child { width: 52px; }
+.constraints li.bad { color: #b91c1c; }
+.constraints .field { margin: 0; flex: 1; }
+.constraints .field input { width: 100%; }
+.constraints .grow { flex: 1; }
+.constraints button { padding: 0 6px; border: 0; background: none; color: #94a3b8; }
+.constraints button:hover { color: #b91c1c; }
+
+/* 스케치 편집기 */
+.sketch-editor { position: absolute; inset: 0; background: #fbfcfe; }
+.sketch-editor svg { display: block; touch-action: none; user-select: none; }
+.sk-tools { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sk-tools button { border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; padding: 4px 9px; cursor: pointer; }
+.sk-tools button.on { background: #1f2a37; color: #fff; border-color: #1f2a37; }
+.sk-tools button:disabled { opacity: .4; cursor: default; }
+.sk-tools button.primary { background: #16a34a; color: #fff; border-color: #16a34a; margin-left: auto; }
+.sk-tools .sep { width: 1px; height: 20px; background: #cbd5e1; margin: 0 4px; }
+.sk-status { position: absolute; left: 8px; right: 8px; bottom: 6px; display: flex; gap: 16px; color: #475569; pointer-events: none; }
+.sk-status .hint { margin-left: auto; }
+.sketch-editor .grid { stroke: #e5e9f0; }
+.sketch-editor .axis { stroke: #94a3b8; }
+.sketch-editor .pv { fill: none; stroke: #64748b; stroke-dasharray: 5 4; }
+.sketch-editor .dim { font: 12px ui-monospace, monospace; fill: #0f766e; }
+.sketch-editor .dim.bad { fill: #dc2626; }
+.dim-input { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 6px; align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 16px #0002; }
+.dim-input input { width: 120px; padding: 3px 6px; font-family: ui-monospace, monospace; }

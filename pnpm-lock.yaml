@@ -29,6 +29,9 @@ importers:
       '@my-cad/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@my-cad/sketch':
+        specifier: workspace:*
+        version: link:../../packages/sketch
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -81,6 +84,15 @@ importers:
         specifier: 1.1.0
         version: 1.1.0
 
+  packages/sketch:
+    dependencies:
+      '@my-cad/core':
+        specifier: workspace:*
+        version: link:../core
+      '@salusoft89/planegcs':
+        specifier: 1.3.0
+        version: 1.3.0
+
   tests:
     dependencies:
       '@my-cad/core':
@@ -89,6 +101,9 @@ importers:
       '@my-cad/kernel':
         specifier: workspace:*
         version: link:../packages/kernel
+      '@my-cad/sketch':
+        specifier: workspace:*
+        version: link:../packages/sketch
       replicad:
         specifier: 1.1.0
         version: 1.1.0
@@ -468,6 +483,9 @@ packages:
     resolution: {integrity: sha512-j5rXD4R/4DM5+V991AA9xOnG2Rwu2g3p5TPgu1Eu7apju0NUrLl+Bn/KpWc6wYJtlXqzwz1r+LNV1JeBU4VGvw==}
     cpu: [x64]
     os: [win32]
+
+  '@salusoft89/planegcs@1.3.0':
+    resolution: {integrity: sha512-ugIkFCPnKRK1Yed+5297S/RmmfgEhIp5Xxx8PYhgfbcS+AxYV3chZ8LMGlEbEqrkbK6fwmNVLtEpLFq5KDl2lw==}
 
   '@tauri-apps/api@2.12.4':
     resolution: {integrity: sha512-pVmfis+4zT8H0Qhp3xPZx9Ju7kpzvA6rr/PSJPyuwfvucTQ8sVt61NYU9KMkK703UFlYadFmjKA4HhybOtN0gg==}
@@ -1208,6 +1226,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.64.12':
     optional: true
+
+  '@salusoft89/planegcs@1.3.0': {}
 
   '@tauri-apps/api@2.12.4': {}
 

@@ -1,11 +1,12 @@
 # MyCAD
 
-파라메트릭 3D CAD (M0). 클린룸 원칙으로 개발합니다: 공개 문서, 일반 CAD 관례, 직접 관찰한 동작만 근거로 삼습니다.
+파라메트릭 3D CAD (M1). 클린룸 원칙으로 개발합니다: 공개 문서, 일반 CAD 관례, 직접 관찰한 동작만 근거로 삼습니다.
 
 ## 구조
 | 경로 | 역할 |
 |---|---|
 | `packages/core` | 문서 모델, 파라미터·수식, 타임라인, Undo (커널을 모름) |
+| `packages/sketch` | 2D 구속조건 솔버 어댑터 (planegcs = FreeCAD 스케처 솔버 WASM) |
 | `packages/kernel` | OCCT(replicad) 어댑터. Web Worker에서 실행 |
 | `apps/web` | React + Three.js UI |
 | `apps/desktop` | Tauri 셸 → Windows `.exe` / `.msi` |
@@ -26,6 +27,22 @@ pnpm desktop:build   # 설치파일 생성 → apps/desktop/src-tauri/target/rel
 3. Visual Studio Build Tools의 "C++를 사용한 데스크톱 개발" 워크로드
 
 GitHub에 푸시하면 `.github/workflows/windows-exe.yml`이 자동으로 빌드해서 Actions 아티팩트로 올립니다. `v0.1.0` 같은 태그를 푸시하면 Releases에 첨부됩니다.
+
+## M1 기능 (v0.2.0)
+- **스케치**: XY/XZ/YZ 평면에 선, 사각형, 원, 호 그리기. 기존 점 근처를 클릭하면 자동으로 이어짐
+- **구속조건**: 일치, 수평, 수직, 평행, 직교, 동일, 접선, 점→선, 고정
+- **치수**: 길이, 거리, 반지름. 값에 파라미터 수식 사용 가능 (`width/2`)
+- 상태 표시: 덜 구속(파랑) · 완전 구속(검정) · 충돌(빨강, 충돌한 구속 표시)
+- **돌출**: 닫힌 프로필 자동 인식 (안쪽 루프는 구멍), 새 바디 / 결합 / 잘라내기, 음수 거리
+- 타임라인: 클릭하면 선택, 더블클릭하면 스케치 편집, 우클릭하면 롤백. 속성 패널에서 억제/삭제
+
+### 스케치 단축키
+| 키 | 동작 |
+|---|---|
+| S / L / R / C / A | 선택 / 선 / 사각형 / 원 / 호 |
+| Esc | 그리기 취소, 선택 해제 |
+| Delete | 선택한 요소 삭제 |
+| 휠 / Alt+드래그 | 확대·축소 / 화면 이동 |
 
 ## M0 기능
 - 파라미터 표 + 수식 (`width/4` 등)

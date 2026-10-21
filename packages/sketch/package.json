@@ -1,0 +1,2 @@
+{ "name": "@my-cad/sketch", "version": "0.1.0", "type": "module", "main": "src/index.ts",
+  "dependencies": { "@salusoft89/planegcs": "1.3.0", "@my-cad/core": "workspace:*" } }

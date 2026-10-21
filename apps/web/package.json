@@ -16,7 +16,8 @@
     "@tauri-apps/plugin-fs": "^2.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "@my-cad/sketch": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
