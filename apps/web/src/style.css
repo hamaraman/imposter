@@ -65,3 +65,12 @@ fieldset.dim { opacity: .45; }
 .dim-input input { width: 120px; padding: 3px 6px; font-family: ui-monospace, monospace; }
 .pick-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: #f59e0b; color: #1f2a37; padding: 6px 14px; border-radius: 16px; box-shadow: 0 2px 8px #0003; }
 .toolbar button:disabled { opacity: .4; }
+.toolbar button.on { background: #f59e0b; color: #1f2a37; }
+.menu-items button:disabled { opacity: .4; }
+.measure-box { position: absolute; left: 10px; bottom: 10px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; box-shadow: 0 2px 10px #0002; min-width: 220px; line-height: 1.6; }
+.field.check { justify-content: flex-start; gap: 6px; }
+.field.check input { width: auto; }
+table.props { width: 100%; border-collapse: collapse; }
+table.props td { padding: 3px 0; border-bottom: 1px solid #eef2f6; vertical-align: middle; }
+table.props td:first-child { color: #64748b; width: 64px; }
+table.props select { width: 100%; }

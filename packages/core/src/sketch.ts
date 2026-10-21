@@ -1,8 +1,9 @@
 // 명세 F-03~F-06: 스케치 데이터 모델. 솔버(planegcs)와 커널(OCCT)은 이 형식만 보고 동작한다
 export type Vec3 = [number, number, number];
 // 원점 평면 3개 또는 솔리드 면에서 만든 평면 (면 위 스케치, 명세 F-03)
-// 면 평면은 만들 당시의 위치를 그대로 기억한다 (면이 나중에 움직여도 따라가지 않음 — 위상 이름은 M5)
-export interface CustomPlane { origin: Vec3; xDir: Vec3; normal: Vec3; label?: string; }
+// follow가 켜져 있으면 다시 계산할 때마다 "같은 방향을 향하고 가장 가까운 평평한 면"을 찾아 따라간다 (M5).
+// origin/xDir/normal은 만들 당시의 값으로, 면을 다시 찾을 때의 기준이 된다
+export interface CustomPlane { origin: Vec3; xDir: Vec3; normal: Vec3; label?: string; follow?: boolean; }
 export type SketchPlane = "XY" | "XZ" | "YZ" | CustomPlane;
 
 export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -71,9 +72,10 @@ export function planeTo3d(plane: SketchPlane, x: number, y: number): Vec3 {
 // 스케치 요소를 지우면 그 요소를 참조하던 곡선·구속도 함께 지운다
 export function removeSketchEntities(sk: SketchData, ids: Set<string>): SketchData {
   const curves = sk.curves.filter((c) => !ids.has(c.id) && !curvePoints(c).some((p) => ids.has(p)));
-  // 곡선이 사라지며 어떤 곡선에도 속하지 않게 된 점은 정리
+  // 지운 곡선의 끝점이었다가 이제 어디에도 안 쓰이는 점만 정리 (원래 혼자 있던 점 = 구멍 위치 등은 유지)
   const used = new Set(curves.flatMap(curvePoints));
-  const points = sk.points.filter((p) => used.has(p.id));
+  const removedEnds = new Set(sk.curves.filter((c) => !curves.includes(c)).flatMap(curvePoints));
+  const points = sk.points.filter((p) => !ids.has(p.id) && (used.has(p.id) || !removedEnds.has(p.id)));
   const alive = new Set([...points.map((p) => p.id), ...curves.map((c) => c.id)]);
   const exists = (id: string) => alive.has(id);
   const constraints = sk.constraints.filter((k) => !ids.has(k.id) && constraintRefs(k).every(exists));
@@ -93,4 +95,10 @@ export function constraintRefs(k: SkConstraint): string[] {
     case "radius": return [k.curve];
     case "coordinate": return [k.point];
   }
+}
+
+// 어떤 곡선에도 속하지 않은 점 (구멍 위치로 사용)
+export function standalonePoints(sk: SketchData): SkPoint[] {
+  const used = new Set(sk.curves.flatMap(curvePoints));
+  return sk.points.filter((p) => !used.has(p.id));
 }

@@ -1,24 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   History, newDocument, serialize, deserialize, setParameter, setFeatureParam, toggleSuppress, setRollback,
-  addSketch, updateSketch, addExtrude, addRevolve, addShell, addPattern, addMirror, setFeatureField, deleteFeature,
+  addSketch, updateSketch, addExtrude, addRevolve, addShell, addPattern, addMirror, addSketchHole, setSketchFollow,
+  setFeatureField, deleteFeature,
   resolveParameters, planeFromNormal, planeLabel,
   type CadDocument, type Command, type ExtrudeOperation, type Feature, type SketchPlane, type Scope,
 } from "@my-cad/core";
 import { solveDocument, type SolveResult } from "@my-cad/sketch";
 import { initBrowserSolver } from "@my-cad/sketch/src/browser";
 import { KernelClient, type BuildReply } from "@my-cad/kernel/src/client";
+import type { MassProps } from "@my-cad/kernel/src/build";
 import { Viewport } from "./Viewport";
 import { SketchEditor } from "./SketchEditor";
 import { openTextFile, saveFile } from "./platform";
 
 const FEATURE_LABEL: Record<Feature["type"], string> = {
   box: "박스", fillet: "필렛", hole: "구멍", sketch: "스케치", extrude: "돌출",
-  revolve: "회전", shell: "쉘", pattern: "패턴", mirror: "미러",
+  revolve: "회전", shell: "쉘", pattern: "패턴", mirror: "미러", sketchHole: "구멍",
 };
+// 재료 밀도 (g/cm³). 질량 = 부피(mm³) × 밀도 / 1000 → g
+const MATERIALS: [string, number][] = [
+  ["PLA", 1.24], ["PETG", 1.27], ["ABS", 1.04], ["나일론 (PA12)", 1.01], ["알루미늄 6061", 2.7], ["강철", 7.85], ["스테인리스 304", 8.0], ["황동", 8.5],
+];
 const PARAM_LABEL: Record<string, string> = {
   distance: "거리 (음수: 반대 방향)", angle: "각도 (°)", thickness: "두께", count: "개수", radius: "반지름",
-  diameter: "지름", width: "폭", depth: "깊이", height: "높이",
+  diameter: "지름", width: "폭", depth: "깊이 (0 = 관통)", height: "높이", headDiameter: "머리 지름", headDepth: "머리 깊이",
 };
 const OPERATION_LABEL: Record<ExtrudeOperation, string> = { new: "새 바디", join: "결합", cut: "잘라내기" };
 
@@ -33,6 +39,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [editingId, setEditingId] = useState<string>();
   const [picking, setPicking] = useState(false); // 면 위 스케치: 면 고르는 중
+  const [measuring, setMeasuring] = useState(false);
   const latest = useRef(0);
 
   useEffect(() => {
@@ -41,6 +48,12 @@ export function App() {
 
   // 1단계: 모든 스케치를 현재 파라미터로 다시 풂 (메인 스레드, 수 ms)
   const solved = useMemo(() => (solverReady ? solveDocument(doc) : undefined), [doc, solverReady]);
+  // 화면 표시용: 커널이 면을 따라 옮긴 스케치 평면을 반영
+  const shown = useMemo(() => {
+    if (!solved || !result?.planes || Object.keys(result.planes).length === 0) return solved?.doc;
+    return { ...solved.doc, features: solved.doc.features.map((f) =>
+      f.type === "sketch" && result.planes[f.id] ? { ...f, sketch: { ...f.sketch, plane: result.planes[f.id] } } : f) };
+  }, [solved, result]);
   const scope = useMemo<Scope>(() => { try { return resolveParameters(doc); } catch { return {}; } }, [doc]);
 
   // 2단계: 푼 문서를 커널 워커로 보내 3D 형상 계산. 오래된 응답은 버린다
@@ -81,7 +94,7 @@ export function App() {
     if (selectedId && !doc.features.some((f) => f.id === selectedId)) setSelectedId(undefined);
   }, [doc, editingId, selectedId]);
 
-  const exportAs = async (format: "stl" | "step") => {
+  const exportAs = async (format: "stl" | "step" | "3mf") => {
     if (!solved) return;
     try {
       const data = await kernel.export(solved.doc, format);
@@ -104,6 +117,16 @@ export function App() {
   };
 
   const newSketch = (plane: SketchPlane) => run(addSketch(plane, (id) => { setEditingId(id); setSelectedId(id); }));
+  // Esc: 측정 끄기 → 선택 해제 (면 고르기·스케치 편집 중에는 그쪽에서 처리)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || editingId || picking || (e.target as HTMLElement).tagName === "INPUT") return;
+      if (measuring) setMeasuring(false); else setSelectedId(undefined);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingId, picking, measuring]);
+
   useEffect(() => {
     if (!picking) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicking(false);
@@ -148,13 +171,24 @@ export function App() {
         <button disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addRevolve(extrudeTarget))}
           title="선택한 스케치(없으면 마지막 스케치)를 축 둘레로 회전">⟳ 회전</button>
         <button disabled={busyMode || !result?.mesh} onClick={() => run(addShell())} title="바디 속을 비움">▢ 쉘</button>
+        <button disabled={busyMode || !extrudeTarget || !result?.mesh} onClick={() => extrudeTarget && run(addSketchHole(extrudeTarget))}
+          title="선택한 스케치(없으면 마지막 스케치)의 점마다 구멍">◎ 구멍</button>
         <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addPattern(patternSource))}
           title="선택한 돌출/회전(없으면 마지막 것)을 반복 복제">⋯ 패턴</button>
         <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addMirror(patternSource))}
           title="선택한 돌출/회전(없으면 마지막 것)을 대칭 복제">⇋ 미러</button>
         <span className="sep" />
-        <button onClick={() => exportAs("stl")}>STL 내보내기</button>
-        <button onClick={() => exportAs("step")}>STEP 내보내기</button>
+        <button className={measuring ? "on" : ""} disabled={!!editingId || !result?.mesh} onClick={() => setMeasuring((m) => !m)}
+          title="두 점 거리, 면 면적 측정">📏 측정</button>
+        <span className="sep" />
+        <span className="menu">
+          <button>⤓ 내보내기 ▾</button>
+          <span className="menu-items" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
+            <button onClick={() => exportAs("stl")}>STL (3D 프린팅)</button>
+            <button onClick={() => exportAs("3mf")}>3MF (3D 프린팅)</button>
+            <button onClick={() => exportAs("step")}>STEP (CAD 교환)</button>
+          </span>
+        </span>
       </header>
 
       <aside className="panel">
@@ -171,7 +205,10 @@ export function App() {
             run={run} onEdit={() => setEditingId(selected.id)}
             onDelete={() => { run(deleteFeature(selected.id)); }} />
         ) : (
-          <p className="info">타임라인에서 피처를 클릭하면 속성이 여기에 나옵니다.</p>
+          <>
+            <p className="info">타임라인에서 피처를 클릭하면 속성이 여기에 나옵니다. (Esc: 선택 해제)</p>
+            {result?.props && <InspectPanel props={result.props} />}
+          </>
         )}
         {result?.volume !== undefined && <p className="info">부피: {result.volume.toFixed(3)} mm³</p>}
       </aside>
@@ -182,13 +219,13 @@ export function App() {
             onCommit={(sk) => run(updateSketch(editing.id, sk))} onExit={() => setEditingId(undefined)} />
         ) : (
           <>
-            <Viewport mesh={result?.mesh} doc={solved?.doc} highlight={selectedId}
+            <Viewport mesh={result?.mesh} doc={shown} highlight={selectedId}
               pickFace={picking ? (face) => {
                 setPicking(false);
                 const r = (v: number) => Math.round(v * 1e6) / 1e6;
-                newSketch(planeFromNormal(face.origin.map(r) as [number, number, number], face.normal.map(r) as [number, number, number],
-                  `면 (${face.normal.map((v) => r(v)).join(", ")})`));
-              } : undefined} />
+                newSketch({ ...planeFromNormal(face.origin.map(r) as [number, number, number], face.normal.map(r) as [number, number, number],
+                  `면 (${face.normal.map((v) => r(v)).join(", ")})`), follow: true });
+              } : undefined} measure={measuring && !picking} />
             {busy && <div className="busy">계산 중…</div>}
             {picking && <div className="pick-hint">스케치할 <b>평평한 면</b>을 클릭하세요 · Esc 취소</div>}
           </>
@@ -229,6 +266,22 @@ function FeaturePanel({ f, doc, result, error, run, onEdit, onDelete }: {
           <button className="wide" onClick={onEdit}>✎ 스케치 편집</button>
         </>
       )}
+      {f.type === "sketch" && typeof f.sketch.plane !== "string" && (
+        <label className="field check">
+          <input type="checkbox" checked={!!f.sketch.plane.follow} onChange={(e) => run(setSketchFollow(f.id, e.target.checked))} />
+          <span>면 따라가기 (모델이 바뀌면 면 위치를 다시 찾음)</span>
+        </label>
+      )}
+      {f.type === "sketchHole" && (
+        <>
+          <Choice label="스케치 (점 위치)" value={f.sketchId} onChange={(v) => run(setFeatureField(f.id, "sketchId", v))}
+            options={doc.features.filter((x) => x.type === "sketch").map((x) => [x.id, x.name])} />
+          <Choice label="종류" value={f.kind} onChange={(v) => run(setFeatureField(f.id, "kind", v))}
+            options={[["simple", "단순"], ["counterbore", "카운터보어"], ["countersink", "접시머리 (90°)"]]} />
+          <Choice label="방향" value={f.side} onChange={(v) => run(setFeatureField(f.id, "side", v))}
+            options={[["in", "면 안쪽으로"], ["out", "반대쪽으로"]]} />
+        </>
+      )}
       {(f.type === "extrude" || f.type === "revolve") && (
         <>
           <Choice label="스케치" value={f.sketchId} onChange={(v) => run(setFeatureField(f.id, "sketchId", v))}
@@ -264,6 +317,7 @@ function FeaturePanel({ f, doc, result, error, run, onEdit, onDelete }: {
       )}
       {Object.entries(f.params)
         .filter(([k]) => f.type !== "pattern" || (f.mode === "linear" ? k !== "angle" : k !== "distance"))
+        .filter(([k]) => f.type !== "sketchHole" || (k !== "headDiameter" || f.kind !== "simple") && (k !== "headDepth" || f.kind === "counterbore"))
         .map(([k, v]) => (
           <ExprField key={k} label={f.type === "pattern" && k === "distance" ? "간격" : f.type === "pattern" && k === "angle" ? "전체 각도 (360 = 한 바퀴)" : PARAM_LABEL[k] ?? k}
             value={v as string} onCommit={(nv) => run(setFeatureParam(f.id, k, nv))} />
@@ -353,4 +407,31 @@ function revolveAxisLines(doc: CadDocument, sketchId: string): [string, string][
     .filter((c) => c.kind === "line")
     .sort((a, b) => Number(!!b.construction) - Number(!!a.construction))
     .map((c, i) => [c.id, `${c.construction ? "보조선" : "선"} ${i + 1}`]);
+}
+
+// 검사 (M3): 부피, 표면적, 무게중심, 크기, 재료별 질량
+function InspectPanel({ props }: { props: MassProps }) {
+  const [mat, setMat] = useState(() => { try { return localStorage.getItem("mycad.material") ?? "PLA"; } catch { return "PLA"; } });
+  const density = MATERIALS.find(([n]) => n === mat)?.[1] ?? 1.24;
+  const [lo, hi] = props.bounds;
+  const f = (v: number, d = 2) => v.toFixed(d);
+  return (
+    <>
+      <h3>검사</h3>
+      <table className="props">
+        <tbody>
+          <tr><td>부피</td><td>{f(props.volume / 1000, 3)} cm³</td></tr>
+          <tr><td>표면적</td><td>{f(props.area / 100, 2)} cm²</td></tr>
+          <tr><td>크기</td><td>{f(hi[0] - lo[0])} × {f(hi[1] - lo[1])} × {f(hi[2] - lo[2])} mm</td></tr>
+          <tr><td>무게중심</td><td>({props.centerOfMass.map((v) => f(v)).join(", ")})</td></tr>
+          <tr><td>재료</td><td>
+            <select value={mat} onChange={(e) => { setMat(e.target.value); try { localStorage.setItem("mycad.material", e.target.value); } catch { /* 저장 불가 환경 */ } }}>
+              {MATERIALS.map(([n, d]) => <option key={n} value={n}>{n} ({d} g/cm³)</option>)}
+            </select>
+          </td></tr>
+          <tr><td>질량</td><td><b>{f((props.volume * density) / 1000)} g</b></td></tr>
+        </tbody>
+      </table>
+    </>
+  );
 }

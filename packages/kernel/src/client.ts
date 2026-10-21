@@ -1,7 +1,8 @@
 import type { CadDocument } from "@my-cad/core";
-import type { FeatureError, MeshData } from "./build";
+import type { CustomPlane } from "@my-cad/core";
+import type { FeatureError, MassProps, MeshData } from "./build";
 
-export interface BuildReply { mesh?: MeshData; errors: FeatureError[]; volume?: number; }
+export interface BuildReply { mesh?: MeshData; errors: FeatureError[]; volume?: number; props?: MassProps; planes: Record<string, CustomPlane>; }
 
 // UI 쪽에서 쓰는 워커 클라이언트 (요청 ID로 응답을 매칭)
 export class KernelClient {
@@ -32,7 +33,7 @@ export class KernelClient {
   }
 
   build(doc: CadDocument) { return this.call<BuildReply>({ kind: "build", doc }); }
-  async export(doc: CadDocument, format: "stl" | "step") {
+  async export(doc: CadDocument, format: "stl" | "step" | "3mf") {
     return (await this.call<{ data: ArrayBuffer }>({ kind: "export", doc, format })).data;
   }
 }

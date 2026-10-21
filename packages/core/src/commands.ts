@@ -111,6 +111,21 @@ export const addPattern = (sourceId: string): Command => (doc) => {
   return doc;
 };
 
+export const addSketchHole = (sketchId: string): Command => (doc) => {
+  const id = nextId(doc, "f");
+  insertFeature(doc, { id, type: "sketchHole", name: `Hole ${id.slice(1)}`, sketchId, kind: "simple", side: "in",
+    params: { diameter: "5", depth: "0", headDiameter: "9", headDepth: "3" } });
+  return doc;
+};
+
+// 면 위 스케치가 면을 따라갈지 (M5)
+export const setSketchFollow = (id: string, follow: boolean): Command => (doc) => {
+  const f = doc.features.find((x) => x.id === id);
+  if (f?.type !== "sketch" || typeof f.sketch.plane === "string") throw new Error("면 위 스케치만 바꿀 수 있습니다");
+  f.sketch.plane = { ...f.sketch.plane, follow };
+  return doc;
+};
+
 export const addMirror = (sourceId: string): Command => (doc) => {
   const id = nextId(doc, "f");
   insertFeature(doc, { id, type: "mirror", name: `Mirror ${id.slice(1)}`, sourceId, plane: "YZ", params: {} });
@@ -121,7 +136,7 @@ export const deleteFeature = (id: string): Command => (doc) => {
   const i = doc.features.findIndex((f) => f.id === id);
   if (i < 0) return doc;
   const user = doc.features.find((f) =>
-    ((f.type === "extrude" || f.type === "revolve") && f.sketchId === id) ||
+    ((f.type === "extrude" || f.type === "revolve" || f.type === "sketchHole") && f.sketchId === id) ||
     ((f.type === "pattern" || f.type === "mirror") && f.sourceId === id));
   if (user) throw new Error(`'${user.name}'이(가) 이 피처를 사용하고 있어서 지울 수 없습니다. 그 피처를 먼저 지우세요`);
   doc.features.splice(i, 1);

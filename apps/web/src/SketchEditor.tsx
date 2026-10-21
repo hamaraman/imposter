@@ -5,7 +5,7 @@ import {
 import { solveSketch, type SolveResult } from "@my-cad/sketch";
 
 // 명세 F-03~F-06: 2D 스케치 편집기 (SVG). 그리기 → 구속 → 치수 → 솔버가 좌표를 바로잡음
-export type Tool = "select" | "line" | "rect" | "circle" | "arc";
+export type Tool = "select" | "point" | "line" | "rect" | "circle" | "arc";
 
 interface Props {
   sketch: SketchData;          // 솔버가 이미 푼 스케치
@@ -124,6 +124,12 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
     let id: string;
     [id, points] = pointAt(w, points);
 
+    if (tool === "point") {
+      // 혼자 있는 점 = 구멍 위치 (기존 점 위를 누르면 아무것도 안 함)
+      if (points.length !== sk.points.length) commit({ ...sk, points, curves, constraints });
+      return;
+    }
+
     if (tool === "line") {
       if (draft.length === 0) { setDraft([id]); commitDraftPoints(points); return; }
       const prev = draft[draft.length - 1];
@@ -232,8 +238,8 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
         commit(removeSketchEntities(sketch, selected));
         setSelected(new Set());
       }
-      const keys: Record<string, Tool> = { s: "select", l: "line", r: "rect", c: "circle", a: "arc" };
-      if (!e.ctrlKey && !e.metaKey && keys[e.key]) { setTool(keys[e.key]); setDraft([]); }
+      const keys: Record<string, Tool> = { s: "select", p: "point", l: "line", r: "rect", c: "circle", a: "arc" };
+      if (!e.ctrlKey && !e.metaKey && keys[e.key]) { setTool(keys[e.key]); setDraft([]); setLive(undefined); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -276,6 +282,14 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
     { label: "보조선", title: "선택한 곡선을 보조선으로 (프로필에서 빠짐, 회전축 등에 사용) · 다시 누르면 해제",
       enabled: selCurves.length > 0 && selCurves.length === sel.length,
       run: () => { commit({ ...sketch, curves: sketch.curves.map((c) => (selected.has(c.id) ? { ...c, construction: !c.construction } : c)) }); } },
+    ...(["x", "y"] as const).map((axis) => ({
+      label: `${axis.toUpperCase()} 좌표`, title: "점 1개: 스케치 원점 기준 좌표 고정 (수식 가능)",
+      enabled: only(1) && selPoints.length === 1,
+      run: () => {
+        const pt = pts.get(selPoints[0])!;
+        setDimInput({ value: fmt(pt[axis]), make: (v) => ({ id: uid("k"), kind: "coordinate", point: pt.id, axis, value: v }) });
+      },
+    })),
     { label: "치수", title: "선 1개(길이) · 점 2개(거리) · 원/호 1개(반지름)",
       enabled: (only(1) && selCurves.length === 1) || (only(2) && selPoints.length === 2),
       run: () => {
@@ -335,9 +349,9 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
   return (
     <div className="sketch-editor">
       <div className="sk-tools">
-        {(["select", "line", "rect", "circle", "arc"] as Tool[]).map((t) => (
-          <button key={t} className={tool === t ? "on" : ""} onClick={() => { setTool(t); setDraft([]); }}>
-            {{ select: "선택 (S)", line: "선 (L)", rect: "사각형 (R)", circle: "원 (C)", arc: "호 (A)" }[t]}
+        {(["select", "point", "line", "rect", "circle", "arc"] as Tool[]).map((t) => (
+          <button key={t} className={tool === t ? "on" : ""} onClick={() => { setTool(t); setDraft([]); setLive(undefined); }}>
+            {{ select: "선택 (S)", point: "점 (P)", line: "선 (L)", rect: "사각형 (R)", circle: "원 (C)", arc: "호 (A)" }[t]}
           </button>
         ))}
         <span className="sep" />
@@ -475,6 +489,7 @@ const fmt = (n: number) => (Math.round(n * 1000) / 1000).toString();
 function hint(tool: Tool, n: number) {
   switch (tool) {
     case "select": return "클릭: 선택 · Shift+클릭: 여러 개 · 점 드래그: 이동 · Delete: 삭제 · 휠: 확대 · Alt+드래그: 이동";
+    case "point": return "클릭한 곳에 점 (구멍 위치로 사용)";
     case "line": return n ? "다음 점 클릭 · 시작점을 누르면 닫힘 · 우클릭/Esc: 끝내기" : "시작점 클릭 (기존 점 근처를 누르면 이어짐)";
     case "rect": return n ? "반대쪽 모서리 클릭" : "첫 모서리 클릭";
     case "circle": return n ? "반지름 위치 클릭" : "중심 클릭";

@@ -1,25 +1,33 @@
-import { drawRectangle, makeCylinder, measureVolume, Plane, type Shape3D } from "replicad";
+import { draw, drawRectangle, makeCylinder, measureArea, measureShapeVolumeProperties, measureVolume, Plane, type Shape3D } from "replicad";
 import {
-  activeFeatures, planeFrame, planeTo3d, resolveFeature, resolveParameters,
-  type CadDocument, type ExtrudeOperation, type Feature, type SketchPlane, type Vec3,
+  activeFeatures, cross, planeFrame, planeTo3d, resolveFeature, resolveParameters, standalonePoints,
+  type CadDocument, type CustomPlane, type ExtrudeOperation, type Feature, type SketchData, type SketchPlane, type Vec3,
 } from "@my-cad/core";
 import { sketchToDrawing } from "./profile";
 
 // 커널 어댑터: OCCT(replicad) 호출은 이 패키지 안에서만 한다 (core는 커널을 모름)
 export interface FeatureError { featureId: string; message: string; }
-export interface BuildResult { shape?: Shape3D; errors: FeatureError[]; volume?: number; }
+// 질량 특성 (M3): 부피 mm³, 표면적 mm², 무게중심, 바운딩 박스
+export interface MassProps { volume: number; area: number; centerOfMass: Vec3; bounds: [Vec3, Vec3]; }
+export interface BuildResult {
+  shape?: Shape3D; errors: FeatureError[]; volume?: number; props?: MassProps;
+  planes: Record<string, CustomPlane>; // 면을 따라간 스케치의 실제 평면 (화면 표시용)
+}
 
 // 돌출/회전이 만든 "도구" 형상을 기억해 두었다가 패턴·미러에서 다시 쓴다
 interface Tool { shape: Shape3D; operation: ExtrudeOperation; }
-interface Ctx { shape?: Shape3D; tools: Map<string, Tool>; doc: CadDocument; scope: Record<string, number>; }
+interface Ctx {
+  shape?: Shape3D; tools: Map<string, Tool>; doc: CadDocument; scope: Record<string, number>;
+  planes: Map<string, SketchPlane>; // 스케치 ID → 이번 계산에서 쓴 평면
+}
 
 export function buildDocument(doc: CadDocument): BuildResult {
   const errors: FeatureError[] = [];
   let scope;
   try { scope = resolveParameters(doc); }
-  catch (e) { return { errors: [{ featureId: "parameters", message: (e as Error).message }] }; }
+  catch (e) { return { errors: [{ featureId: "parameters", message: (e as Error).message }], planes: {} }; }
 
-  const ctx: Ctx = { tools: new Map(), doc, scope };
+  const ctx: Ctx = { tools: new Map(), doc, scope, planes: new Map() };
   for (const f of activeFeatures(doc)) {
     try {
       // 실패한 피처는 건너뛰고 직전 형상을 유지 (명세 F-10 예외 처리)
@@ -28,7 +36,39 @@ export function buildDocument(doc: CadDocument): BuildResult {
       errors.push({ featureId: f.id, message: kernelMessage(e) });
     }
   }
-  return { shape: ctx.shape, errors, volume: ctx.shape ? measureVolume(ctx.shape) : undefined };
+  const planes: Record<string, CustomPlane> = {};
+  ctx.planes.forEach((pl, id) => { if (typeof pl !== "string" && pl.follow) planes[id] = pl; });
+  return { shape: ctx.shape, errors, volume: ctx.shape ? measureVolume(ctx.shape) : undefined, planes };
+}
+
+export function massProps(shape: Shape3D): MassProps {
+  const vp = measureShapeVolumeProperties(shape);
+  const props = { volume: vp.volume, area: measureArea(shape), centerOfMass: vp.centerOfMass as Vec3,
+    bounds: shape.boundingBox.bounds as [Vec3, Vec3] };
+  vp.delete();
+  return props;
+}
+
+// M5: 면을 따라가는 스케치 평면 다시 찾기
+// 같은 방향을 향하는 평평한 면 중, 처음 기준점에서 법선 방향 거리가 가장 가깝고(주) 면 중심이 가까운(보조) 면을 고른다.
+// 새 원점 = 처음 원점을 그 면의 평면 위로 옮긴 점 (면 안에서의 위치는 유지하고 높이만 따라감)
+export function followPlane(shape: Shape3D, plane: CustomPlane): CustomPlane | undefined {
+  const n = planeFrame(plane).n;
+  let best: { score: number; offset: number } | undefined;
+  for (const face of shape.faces) {
+    if (face.geomType !== "PLANE") continue;
+    const fn = face.normalAt().toTuple();
+    if (fn[0] * n[0] + fn[1] * n[1] + fn[2] * n[2] < 0.9999) continue;
+    const c = face.center.toTuple();
+    const d: Vec3 = [c[0] - plane.origin[0], c[1] - plane.origin[1], c[2] - plane.origin[2]];
+    const offset = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+    const inPlane = Math.hypot(d[0] - offset * n[0], d[1] - offset * n[1], d[2] - offset * n[2]);
+    const score = Math.abs(offset) + 0.25 * inPlane;
+    if (!best || score < best.score) best = { score, offset };
+  }
+  if (!best) return undefined;
+  const origin = plane.origin.map((v, i) => v + n[i] * best!.offset) as Vec3;
+  return { ...plane, origin };
 }
 
 // OCCT 예외는 숫자 포인터로 올라오는 경우가 있어서 사람이 읽을 수 있는 문장으로 바꿈
@@ -54,18 +94,29 @@ function toPlane(plane: SketchPlane, offset = 0): Plane {
   return new Plane(origin, f.x, f.n);
 }
 
-function sketchOf(ctx: Ctx, sketchId: string) {
+function sketchOf(ctx: Ctx, sketchId: string): SketchData {
   const sk = ctx.doc.features.find((x) => x.id === sketchId);
   if (sk?.type !== "sketch") throw new Error("사용할 스케치를 찾을 수 없습니다");
   if (sk.suppressed) throw new Error("사용할 스케치가 억제되어 있습니다");
-  return sk.sketch;
+  const plane = ctx.planes.get(sketchId);
+  if (!plane) throw new Error("스케치가 이 피처보다 뒤에 있어서 사용할 수 없습니다");
+  return { ...sk.sketch, plane };
 }
 
 function applyFeature(f: Feature, ctx: Ctx): Shape3D | undefined {
   const { shape, scope } = ctx;
   switch (f.type) {
-    case "sketch":
-      return shape; // 스케치는 형상을 바꾸지 않음
+    case "sketch": {
+      // 스케치는 형상을 바꾸지 않음. 면을 따라가는 평면이면 지금 바디에서 면을 다시 찾는다
+      const pl = f.sketch.plane;
+      ctx.planes.set(f.id, pl);
+      if (typeof pl !== "string" && pl.follow) {
+        const found = shape ? followPlane(shape, pl) : undefined;
+        if (!found) throw new Error("따라갈 면을 찾을 수 없어서 처음 위치에 그립니다");
+        ctx.planes.set(f.id, found);
+      }
+      return shape;
+    }
 
     case "box": {
       const p = resolveFeature(f, scope);
@@ -121,6 +172,43 @@ function applyFeature(f: Feature, ctx: Ctx): Shape3D | undefined {
       const bb = shape.boundingBox;
       const tool = makeCylinder(p.diameter / 2, bb.depth + 2, [p.x, p.y, bb.bounds[0][2] - 1]);
       return shape.cut(tool);
+    }
+
+    case "sketchHole": {
+      if (!shape) throw new Error("구멍을 뚫을 바디가 없습니다");
+      const sk = sketchOf(ctx, f.sketchId);
+      const pts = standalonePoints(sk);
+      if (pts.length === 0) throw new Error("스케치에 구멍 위치(혼자 있는 점)가 없습니다. 스케치에서 '점' 도구로 찍어 주세요");
+      const p = resolveFeature(f, scope);
+      if (p.diameter <= 0) throw new Error("지름은 0보다 커야 합니다");
+      const r = p.diameter / 2;
+      const [lo, hi] = shape.boundingBox.bounds;
+      const through = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) * 2 + 1;
+      const depth = p.depth > 0 ? p.depth : through;
+      const R = p.headDiameter / 2;
+      if (f.kind !== "simple" && R <= r) throw new Error("머리 지름은 구멍 지름보다 커야 합니다");
+      if (f.kind === "counterbore" && (p.headDepth <= 0 || p.headDepth >= depth)) throw new Error("카운터보어 깊이는 0보다 크고 구멍 깊이보다 작아야 합니다");
+
+      // 구멍 단면 (u = 반지름 방향, v = 축 방향, 위쪽이 +v). 면 위로 0.1 띄워서 시작해 깔끔하게 잘림
+      const up = 0.1;
+      const prof: [number, number][] =
+        f.kind === "counterbore" ? [[0, up], [R, up], [R, -p.headDepth], [r, -p.headDepth], [r, -depth], [0, -depth]]
+        : f.kind === "countersink" ? [[0, up], [R + up, up], [r, -(R - r)], [r, -depth], [0, -depth]] // 90° 접시머리
+        : [[0, up], [r, up], [r, -depth], [0, -depth]];
+
+      const frame = planeFrame(sk.plane);
+      const axis: Vec3 = f.side === "in" ? frame.n : (frame.n.map((v) => -v) as Vec3); // 구멍은 -axis 쪽으로 파고듦
+      let out = shape;
+      for (const pt of pts) {
+        const origin = planeTo3d(sk.plane, pt.x, pt.y);
+        // 축을 포함하는 평면: 로컬 x = 스케치 x, 로컬 y = axis → 법선 = x × axis
+        const plane = new Plane(origin, frame.x, cross(frame.x, axis));
+        let pen = draw(prof[0]);
+        for (const q of prof.slice(1)) pen = pen.lineTo(q);
+        const tool = pen.close().sketchOnPlane(plane).revolve(axis, { origin }) as Shape3D;
+        out = out.cut(tool);
+      }
+      return out;
     }
 
     case "shell": {
@@ -187,7 +275,7 @@ function sourceTool(ctx: Ctx, id: string): Tool {
 }
 
 // 메시 + 면 정보. 면 번호는 메시의 faceGroups 순서와 같다 (면 위 스케치용)
-export interface FaceInfo { planar: boolean; origin: Vec3; normal: Vec3; }
+export interface FaceInfo { planar: boolean; origin: Vec3; normal: Vec3; area: number; kind: string; }
 export interface MeshData {
   vertices: Float32Array; normals: Float32Array; triangles: Uint32Array; edges: Float32Array;
   faceGroups: { start: number; count: number }[];
@@ -203,6 +291,8 @@ export function meshShape(shape: Shape3D): MeshData {
       planar,
       origin: f.center.toTuple() as Vec3,
       normal: planar ? (f.normalAt().toTuple() as Vec3) : [0, 0, 1],
+      area: measureArea(f),
+      kind: f.geomType,
     };
   });
   return {

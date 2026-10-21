@@ -25,6 +25,10 @@ export type Feature =
   // 패턴: 앞선 돌출/회전의 결과를 직선 또는 원형으로 복제 (같은 연산 적용)
   | { id: string; type: "pattern"; name: string; suppressed?: boolean; sourceId: string; mode: "linear" | "circular";
       axis: Axis; params: { count: string; distance: string; angle: string } }
+  // 구멍(M3): 스케치의 점마다 구멍. 깊이 0 = 관통. 방향은 스케치 평면 법선의 반대(in) 또는 같은 쪽(out)
+  | { id: string; type: "sketchHole"; name: string; suppressed?: boolean; sketchId: string;
+      kind: "simple" | "counterbore" | "countersink"; side: "in" | "out";
+      params: { diameter: string; depth: string; headDiameter: string; headDepth: string } }
   // 미러: 앞선 돌출/회전의 결과를 원점 평면에 대칭 복제
   | { id: string; type: "mirror"; name: string; suppressed?: boolean; sourceId: string; plane: "XY" | "XZ" | "YZ";
       params: Record<string, never> };
