@@ -1,0 +1,2 @@
+{ "name": "tests", "private": true, "type": "module",
+  "dependencies": { "@my-cad/core": "workspace:*", "@my-cad/kernel": "workspace:*", "replicad": "1.1.0", "replicad-opencascadejs": "1.1.0" } }

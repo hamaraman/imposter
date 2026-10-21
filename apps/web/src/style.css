@@ -1,0 +1,25 @@
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif; font-size: 13px; color: #1f2a37; }
+.app { display: grid; height: 100%; grid-template: "bar bar" 40px "panel view" 1fr "time time" 44px / 260px 1fr; }
+.toolbar { grid-area: bar; display: flex; align-items: center; gap: 6px; padding: 0 10px; background: #1f2a37; color: #fff; }
+.toolbar button { background: #334155; color: #fff; border: 0; border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+.toolbar button:disabled { opacity: .4; cursor: default; }
+.toolbar button:hover:not(:disabled) { background: #475569; }
+.sep { width: 1px; height: 20px; background: #475569; margin: 0 4px; }
+.panel { grid-area: panel; overflow: auto; padding: 8px 12px; background: #f8fafc; border-right: 1px solid #d5dbe3; }
+.panel h3 { font-size: 12px; text-transform: uppercase; color: #64748b; margin: 12px 0 6px; }
+fieldset { border: 1px solid #d5dbe3; border-radius: 6px; margin: 0 0 8px; padding: 4px 8px 6px; }
+fieldset.dim { opacity: .45; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
+.field input { width: 120px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; font-family: ui-monospace, monospace; }
+.field input.bad { border-color: #dc2626; background: #fef2f2; }
+.info { color: #475569; margin-top: 12px; }
+.view { grid-area: view; position: relative; overflow: hidden; }
+.busy { position: absolute; top: 8px; right: 10px; background: #1f2a37cc; color: #fff; padding: 3px 8px; border-radius: 4px; }
+.timeline { grid-area: time; display: flex; align-items: center; gap: 6px; padding: 0 10px; background: #e2e8f0; border-top: 1px solid #cbd5e1; }
+.timeline .label { font-weight: 600; color: #475569; margin-right: 6px; }
+.chip { border: 1px solid #94a3b8; background: #fff; border-radius: 14px; padding: 4px 10px; cursor: pointer; }
+.chip.off { text-decoration: line-through; opacity: .5; }
+.chip.rolled { opacity: .3; border-style: dashed; }
+.chip.err { border-color: #dc2626; color: #b91c1c; background: #fef2f2; }
+.status { margin-left: auto; color: #475569; }

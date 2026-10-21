@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"메인 창 권한: 사용자가 대화상자로 고른 파일만 읽고 쓴다","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","fs:allow-read-text-file","fs:allow-write-file",{"identifier":"fs:scope","allow":[{"path":"$HOME/**"},{"path":"$DOCUMENT/**"},{"path":"$DESKTOP/**"},{"path":"$DOWNLOAD/**"}]}]}}
