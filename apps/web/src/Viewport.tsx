@@ -17,7 +17,7 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     scene: THREE.Scene; group: THREE.Group; sketches: THREE.Group; fit: () => void;
-    camera: THREE.PerspectiveCamera; dom: HTMLCanvasElement; hover: THREE.Mesh;
+    camera: THREE.PerspectiveCamera; dom: HTMLCanvasElement; hover: THREE.Mesh; view: (dir: [number, number, number]) => void;
   }>();
   const bodyRef = useRef<THREE.Mesh>();
   const pickRef = useRef(pickFace);
@@ -27,23 +27,22 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
 
   useEffect(() => {
     const el = host.current!;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // 배경은 CSS 그라데이션
     renderer.setPixelRatio(window.devicePixelRatio);
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xeef1f5);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 10000);
     camera.up.set(0, 0, 1);
     camera.position.set(80, -100, 70);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x2a3340, 1.7));
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(1, -2, 3);
     scene.add(sun);
-    const grid = new THREE.GridHelper(200, 20, 0x9aa5b1, 0xcfd6de);
+    const grid = new THREE.GridHelper(200, 20, 0x5b6676, 0x343c48);
     grid.rotation.x = Math.PI / 2;
     scene.add(grid, new THREE.AxesHelper(20));
 
@@ -65,7 +64,19 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
     }));
     hover.visible = false;
     scene.add(hover);
-    sceneRef.current = { scene, group, sketches, fit, camera, dom: renderer.domElement, hover };
+    // 표준 시점: 바디 중심을 보면서 주어진 방향에서 바라봄
+    const view = (dir: [number, number, number]) => {
+      const box = new THREE.Box3().setFromObject(group);
+      const c = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
+      const r = box.isEmpty() ? 100 : box.getSize(new THREE.Vector3()).length();
+      controls.target.copy(c);
+      camera.position.copy(c).add(new THREE.Vector3(...dir).normalize().multiplyScalar(r * 1.6));
+      camera.up.set(0, 0, 1);
+      if (Math.abs(dir[2]) > 0.99) camera.up.set(0, 1, 0); // 위에서 볼 때는 Y가 화면 위
+      camera.lookAt(c);
+      controls.update();
+    };
+    sceneRef.current = { scene, group, sketches, fit, camera, dom: renderer.domElement, hover, view };
 
     // 화면 좌표 → 몸체의 면 번호 (삼각형 번호가 속한 faceGroup)
     const ray = new THREE.Raycaster();
@@ -150,11 +161,11 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
     geo.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
     geo.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
     const body = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color: 0x8fa9c7, metalness: 0.1, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+      color: 0xa9bccf, metalness: 0.15, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     }));
     const edgeGeo = new THREE.BufferGeometry();
     edgeGeo.setAttribute("position", new THREE.BufferAttribute(mesh.edges, 3));
-    const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x1f2a37 }));
+    const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x0b1017 }));
     s.group.add(body, edges);
     bodyRef.current = body;
     if (firstFit.current) { s.fit(); firstFit.current = false; }
@@ -204,7 +215,7 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       const on = f.id === highlight;
-      s.sketches.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: on ? 0xf59e0b : 0x2563eb, depthTest: !on })));
+      s.sketches.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: on ? 0xf59e0b : 0x60a5fa, depthTest: !on })));
     }
   }, [doc, highlight]);
 
@@ -214,6 +225,12 @@ export function Viewport({ mesh, doc, highlight, pickFace, measure }: {
   return (
     <>
       <div ref={host} style={{ position: "absolute", inset: 0 }} />
+      <div className="view-tools">
+        {([["등각", [0.8, -1, 0.7]], ["위", [0, 0, 1]], ["정면", [0, -1, 0]], ["오른쪽", [1, 0, 0]]] as const).map(([l, d]) => (
+          <button key={l} onClick={() => sceneRef.current?.view([...d] as [number, number, number])}>{l}</button>
+        ))}
+        <button title="화면에 맞춤" onClick={() => sceneRef.current?.fit()}>맞춤</button>
+      </div>
       {measure && (
         <div className="measure-box">
           <b>📏 측정</b>

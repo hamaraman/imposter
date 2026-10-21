@@ -308,9 +308,10 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
   ];
 
   // ── 그리기 ──────────────────────────────────────────────
-  const statusColor = result?.status === "full" ? "#111827" : result?.status === "over" ? "#dc2626" : "#2563eb";
+  // 어두운 배경 기준 색: 완전 구속 = 밝은 흰색, 덜 구속 = 파랑, 충돌 = 빨강, 선택 = 주황
+  const statusColor = result?.status === "full" ? "#e5e9f0" : result?.status === "over" ? "#f87171" : "#60a5fa";
   const conflictRefs = new Set(sk.constraints.filter((k) => conflicts.has(k.id)).flatMap((k) => Object.values(k).filter((v) => typeof v === "string")));
-  const strokeOf = (id: string) => (selected.has(id) ? "#f59e0b" : conflictRefs.has(id) ? "#dc2626" : statusColor);
+  const strokeOf = (id: string) => (selected.has(id) ? "#fbbf24" : conflictRefs.has(id) ? "#f87171" : statusColor);
 
   const preview = (() => {
     if (!cursor || draft.length === 0) return null;
@@ -372,7 +373,7 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
         {sk.points.map((p) => {
           const [x, y] = toScreen(p.x, p.y);
           return p.fixed
-            ? <rect key={p.id} x={x - 4} y={y - 4} width={8} height={8} fill={selected.has(p.id) ? "#f59e0b" : "#111827"} />
+            ? <rect key={p.id} x={x - 4} y={y - 4} width={8} height={8} fill={selected.has(p.id) ? "#fbbf24" : "#e5e9f0"} />
             : <circle key={p.id} cx={x} cy={y} r={selected.has(p.id) ? 5 : 3.5} fill={strokeOf(p.id)} />;
         })}
         {preview}

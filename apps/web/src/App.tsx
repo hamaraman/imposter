@@ -13,6 +13,7 @@ import type { MassProps } from "@my-cad/kernel/src/build";
 import { Viewport } from "./Viewport";
 import { SketchEditor } from "./SketchEditor";
 import { openTextFile, saveFile } from "./platform";
+import { Icon, FEATURE_ICON, type IconName } from "./icons";
 
 const FEATURE_LABEL: Record<Feature["type"], string> = {
   box: "박스", fillet: "필렛", hole: "구멍", sketch: "스케치", extrude: "돌출",
@@ -22,9 +23,13 @@ const FEATURE_LABEL: Record<Feature["type"], string> = {
 const MATERIALS: [string, number][] = [
   ["PLA", 1.24], ["PETG", 1.27], ["ABS", 1.04], ["나일론 (PA12)", 1.01], ["알루미늄 6061", 2.7], ["강철", 7.85], ["스테인리스 304", 8.0], ["황동", 8.5],
 ];
+// 입력칸 툴팁 (라벨은 짧게, 설명은 여기에)
+const PARAM_HINT: Record<string, string> = {
+  distance: "음수를 넣으면 반대 방향으로 돌출", depth: "0이면 끝까지 관통", angle: "도(°) 단위",
+};
 const PARAM_LABEL: Record<string, string> = {
-  distance: "거리 (음수: 반대 방향)", angle: "각도 (°)", thickness: "두께", count: "개수", radius: "반지름",
-  diameter: "지름", width: "폭", depth: "깊이 (0 = 관통)", height: "높이", headDiameter: "머리 지름", headDepth: "머리 깊이",
+  distance: "거리", angle: "각도 (°)", thickness: "두께", count: "개수", radius: "반지름",
+  diameter: "지름", width: "폭", depth: "깊이", height: "높이", headDiameter: "머리 지름", headDepth: "머리 깊이",
 };
 const OPERATION_LABEL: Record<ExtrudeOperation, string> = { new: "새 바디", join: "결합", cut: "잘라내기" };
 
@@ -149,54 +154,61 @@ export function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <strong>MyCAD</strong>
-        <button onClick={openDoc}>열기</button>
-        <button onClick={saveDoc}>저장</button>
-        <span className="sep" />
-        <button onClick={undo} disabled={!history.canUndo} title="Ctrl+Z">↶ 실행 취소</button>
-        <button onClick={redo} disabled={!history.canRedo} title="Ctrl+Y">↷ 다시 실행</button>
-        <span className="sep" />
-        <span className="menu">
-          <button disabled={busyMode || !solverReady}>✎ 새 스케치 ▾</button>
-          {/* 항목을 고르면 포커스를 풀어서 메뉴가 닫히게 함 */}
-          <span className="menu-items" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
-            {(["XY", "XZ", "YZ"] as const).map((p) => (
-              <button key={p} onClick={() => newSketch(p)}>{p} 평면</button>
-            ))}
-            <button disabled={!result?.mesh} onClick={() => setPicking(true)}>면 선택…</button>
+        <div className="brand"><Icon name="box" size={20} /> MyCAD</div>
+        <div className="group">
+          <Tool icon="open" label="열기" onClick={openDoc} />
+          <Tool icon="save" label="저장" onClick={saveDoc} />
+          <Tool icon="undo" label="취소" title="실행 취소 (Ctrl+Z)" onClick={undo} disabled={!history.canUndo} />
+          <Tool icon="redo" label="다시" title="다시 실행 (Ctrl+Y)" onClick={redo} disabled={!history.canRedo} />
+        </div>
+        <div className="group">
+          <span className="menu">
+            <Tool icon="sketch" label="스케치 ▾" title="새 스케치" disabled={busyMode || !solverReady} />
+            {/* 항목을 고르면 포커스를 풀어서 메뉴가 닫히게 함 */}
+            <span className="menu-items" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
+              {(["XY", "XZ", "YZ"] as const).map((p) => (
+                <button key={p} onClick={() => newSketch(p)}><Icon name="plane" size={16} /> {p} 평면</button>
+              ))}
+              <button disabled={!result?.mesh} onClick={() => setPicking(true)}><Icon name="face" size={16} /> 면 선택…</button>
+            </span>
           </span>
-        </span>
-        <button disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addExtrude(extrudeTarget))}
-          title="선택한 스케치(없으면 마지막 스케치)를 돌출">⬆ 돌출</button>
-        <button disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addRevolve(extrudeTarget))}
-          title="선택한 스케치(없으면 마지막 스케치)를 축 둘레로 회전">⟳ 회전</button>
-        <button disabled={busyMode || !result?.mesh} onClick={() => run(addShell())} title="바디 속을 비움">▢ 쉘</button>
-        <button disabled={busyMode || !extrudeTarget || !result?.mesh} onClick={() => extrudeTarget && run(addSketchHole(extrudeTarget))}
-          title="선택한 스케치(없으면 마지막 스케치)의 점마다 구멍">◎ 구멍</button>
-        <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addPattern(patternSource))}
-          title="선택한 돌출/회전(없으면 마지막 것)을 반복 복제">⋯ 패턴</button>
-        <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addMirror(patternSource))}
-          title="선택한 돌출/회전(없으면 마지막 것)을 대칭 복제">⇋ 미러</button>
-        <span className="sep" />
-        <button className={measuring ? "on" : ""} disabled={!!editingId || !result?.mesh} onClick={() => setMeasuring((m) => !m)}
-          title="두 점 거리, 면 면적 측정">📏 측정</button>
-        <span className="sep" />
-        <span className="menu">
-          <button>⤓ 내보내기 ▾</button>
-          <span className="menu-items" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
-            <button onClick={() => exportAs("stl")}>STL (3D 프린팅)</button>
-            <button onClick={() => exportAs("3mf")}>3MF (3D 프린팅)</button>
-            <button onClick={() => exportAs("step")}>STEP (CAD 교환)</button>
+        </div>
+        <div className="group">
+          <Tool icon="extrude" label="돌출" title="선택한 스케치(없으면 마지막 스케치)를 돌출"
+            disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addExtrude(extrudeTarget))} />
+          <Tool icon="revolve" label="회전" title="선택한 스케치(없으면 마지막 스케치)를 축 둘레로 회전"
+            disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addRevolve(extrudeTarget))} />
+          <Tool icon="hole" label="구멍" title="선택한 스케치(없으면 마지막 스케치)의 점마다 구멍"
+            disabled={busyMode || !extrudeTarget || !result?.mesh} onClick={() => extrudeTarget && run(addSketchHole(extrudeTarget))} />
+          <Tool icon="shell" label="쉘" title="바디 속을 비움" disabled={busyMode || !result?.mesh} onClick={() => run(addShell())} />
+        </div>
+        <div className="group">
+          <Tool icon="pattern" label="패턴" title="선택한 돌출/회전(없으면 마지막 것)을 반복 복제"
+            disabled={busyMode || !patternSource} onClick={() => patternSource && run(addPattern(patternSource))} />
+          <Tool icon="mirror" label="미러" title="선택한 돌출/회전(없으면 마지막 것)을 대칭 복제"
+            disabled={busyMode || !patternSource} onClick={() => patternSource && run(addMirror(patternSource))} />
+        </div>
+        <div className="group">
+          <Tool icon="measure" label="측정" title="두 점 거리, 면 면적 측정" active={measuring}
+            disabled={!!editingId || !result?.mesh} onClick={() => setMeasuring((m) => !m)} />
+          <span className="menu">
+            <Tool icon="export" label="내보내기 ▾" />
+            <span className="menu-items right" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
+              <button onClick={() => exportAs("stl")}>STL <small>3D 프린팅</small></button>
+              <button onClick={() => exportAs("3mf")}>3MF <small>3D 프린팅</small></button>
+              <button onClick={() => exportAs("step")}>STEP <small>CAD 교환</small></button>
+            </span>
           </span>
-        </span>
+        </div>
       </header>
 
       <aside className="panel">
-        <h3>파라미터</h3>
-        {doc.parameters.map((p) => (
-          <ExprField key={p.name} label={`${p.name} (${p.unit})`} value={p.expr}
-            onCommit={(v) => run(setParameter(p.name, v))} error={errorOf("parameters")} />
-        ))}
+        <Section icon="params" title="파라미터" count={doc.parameters.length}>
+          {doc.parameters.map((p) => (
+            <ExprField key={p.name} label={p.name} unit={p.unit} value={p.expr}
+              onCommit={(v) => run(setParameter(p.name, v))} error={errorOf("parameters")} />
+          ))}
+        </Section>
 
         {editing?.type === "sketch" ? (
           <SketchPanel sketchId={editing.id} doc={doc} result={solved?.results[editing.id]} run={run} />
@@ -205,12 +217,12 @@ export function App() {
             run={run} onEdit={() => setEditingId(selected.id)}
             onDelete={() => { run(deleteFeature(selected.id)); }} />
         ) : (
-          <>
-            <p className="info">타임라인에서 피처를 클릭하면 속성이 여기에 나옵니다. (Esc: 선택 해제)</p>
-            {result?.props && <InspectPanel props={result.props} />}
-          </>
+          <Section icon="inspect" title="검사">
+            {result?.props ? <InspectPanel props={result.props} /> : <p className="info">바디가 없습니다.</p>}
+            <p className="hint">타임라인에서 피처를 클릭하면 속성을 편집할 수 있습니다. Esc로 선택 해제.</p>
+          </Section>
         )}
-        {result?.volume !== undefined && <p className="info">부피: {result.volume.toFixed(3)} mm³</p>}
+        {result?.volume !== undefined && <p className="info volume">부피: {result.volume.toFixed(3)} mm³</p>}
       </aside>
 
       <main className="view">
@@ -226,28 +238,76 @@ export function App() {
                 newSketch({ ...planeFromNormal(face.origin.map(r) as [number, number, number], face.normal.map(r) as [number, number, number],
                   `면 (${face.normal.map((v) => r(v)).join(", ")})`), follow: true });
               } : undefined} measure={measuring && !picking} />
-            {busy && <div className="busy">계산 중…</div>}
+            {busy && <div className="busy"><span className="spinner" /> 계산 중</div>}
             {picking && <div className="pick-hint">스케치할 <b>평평한 면</b>을 클릭하세요 · Esc 취소</div>}
           </>
         )}
       </main>
 
       <footer className="timeline">
-        <span className="label">타임라인</span>
-        {doc.features.map((f, i) => (
-          <button key={f.id}
-            className={["chip", f.suppressed && "off", i >= end && "rolled", errorOf(f.id) && "err", f.id === selectedId && "sel"]
-              .filter(Boolean).join(" ")}
-            title={errorOf(f.id) ?? "클릭: 선택 · 더블클릭: 스케치 편집 · 우클릭: 여기까지 롤백"}
-            onClick={() => setSelectedId(f.id)}
-            onDoubleClick={() => f.type === "sketch" && setEditingId(f.id)}
-            onContextMenu={(e) => { e.preventDefault(); run(setRollback(i + 1 === doc.features.length ? undefined : i + 1)); }}>
-            {errorOf(f.id) ? "⚠ " : ""}{FEATURE_LABEL[f.type]} · {f.name}
-          </button>
-        ))}
+        <div className="tl-track">
+          {doc.features.map((f, i) => {
+            const err = errorOf(f.id);
+            return (
+              <div key={f.id} className="tl-slot">
+                <button
+                  className={["chip", f.suppressed && "off", i >= end && "rolled", err && "err", f.id === selectedId && "sel"]
+                    .filter(Boolean).join(" ")}
+                  title={`${FEATURE_LABEL[f.type]} · ${f.name}${err ? `\n⚠ ${err}` : ""}\n클릭: 선택 · 더블클릭: 스케치 편집 · 우클릭: 여기까지 롤백`}
+                  onClick={() => setSelectedId(f.id)}
+                  onDoubleClick={() => f.type === "sketch" && setEditingId(f.id)}
+                  onContextMenu={(e) => { e.preventDefault(); run(setRollback(i + 1 === doc.features.length ? undefined : i + 1)); }}>
+                  <Icon name={FEATURE_ICON[f.type] ?? "box"} size={20} />
+                  <span className="sr">{FEATURE_LABEL[f.type]} · {f.name}</span>
+                </button>
+                {i === end - 1 && end < doc.features.length && (
+                  <button className="rollback" title="롤백 막대 · 클릭하면 끝으로" onClick={() => run(setRollback(undefined))} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="tl-info">
+          {selected ? <><b>{FEATURE_LABEL[selected.type]}</b> {selected.name}</> : <span className="muted">{doc.features.length}개 피처</span>}
+        </div>
         <span className="status">{solverReady ? status : "솔버 불러오는 중…"}</span>
       </footer>
     </div>
+  );
+}
+
+// 툴바 버튼: 아이콘 위, 작은 라벨 아래
+function Tool({ icon, label, title, onClick, disabled, active }: {
+  icon: IconName; label: string; title?: string; onClick?: () => void; disabled?: boolean; active?: boolean;
+}) {
+  return (
+    <button className={`tool${active ? " on" : ""}`} title={title ?? label} onClick={onClick} disabled={disabled}>
+      <Icon name={icon} size={20} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+// 접을 수 있는 패널 구역 (열림 상태는 이 브라우저에만 기억)
+function Section({ icon, title, count, children, actions }: {
+  icon: IconName; title: string; count?: number; children: React.ReactNode; actions?: React.ReactNode;
+}) {
+  const key = `mycad.section.${title}`;
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(key) !== "0"; } catch { return true; } });
+  const toggle = () => setOpen((o) => { try { localStorage.setItem(key, o ? "0" : "1"); } catch { /* 저장 불가 환경 */ } return !o; });
+  return (
+    <section className={`section${open ? "" : " closed"}`}>
+      <header>
+        <button className="sec-toggle" onClick={toggle}>
+          <Icon name="chevron" size={14} className="chev" />
+          <Icon name={icon} size={15} />
+          <span>{title}</span>
+          {count !== undefined && <span className="badge">{count}</span>}
+        </button>
+        {actions}
+      </header>
+      {open && <div className="sec-body">{children}</div>}
+    </section>
   );
 }
 
@@ -256,14 +316,13 @@ function FeaturePanel({ f, doc, result, error, run, onEdit, onDelete }: {
   run: (c: Command) => void; onEdit: () => void; onDelete: () => void;
 }) {
   return (
-    <>
-      <h3>{FEATURE_LABEL[f.type]} · {f.name}</h3>
-      {error && <p className="error">⚠ {error}</p>}
+    <Section icon={FEATURE_ICON[f.type] ?? "props"} title={`${FEATURE_LABEL[f.type]} · ${f.name}`}>
+      {error && <p className="error"><Icon name="warn" size={15} /> {error}</p>}
       {f.type === "sketch" && (
         <>
           <p className="info">평면 {planeLabel(f.sketch.plane)} · 곡선 {f.sketch.curves.length}개 · 구속 {f.sketch.constraints.length}개
             <br />{statusText(result)}</p>
-          <button className="wide" onClick={onEdit}>✎ 스케치 편집</button>
+          <button className="primary wide" onClick={onEdit}><Icon name="edit" size={15} /> 스케치 편집</button>
         </>
       )}
       {f.type === "sketch" && typeof f.sketch.plane !== "string" && (
@@ -319,14 +378,17 @@ function FeaturePanel({ f, doc, result, error, run, onEdit, onDelete }: {
         .filter(([k]) => f.type !== "pattern" || (f.mode === "linear" ? k !== "angle" : k !== "distance"))
         .filter(([k]) => f.type !== "sketchHole" || (k !== "headDiameter" || f.kind !== "simple") && (k !== "headDepth" || f.kind === "counterbore"))
         .map(([k, v]) => (
-          <ExprField key={k} label={f.type === "pattern" && k === "distance" ? "간격" : f.type === "pattern" && k === "angle" ? "전체 각도 (360 = 한 바퀴)" : PARAM_LABEL[k] ?? k}
+          <ExprField key={k} label={f.type === "pattern" && k === "distance" ? "간격" : f.type === "pattern" && k === "angle" ? "전체 각도" : PARAM_LABEL[k] ?? k}
+            hint={PARAM_HINT[k] ?? (f.type === "pattern" && k === "angle" ? "360이면 한 바퀴를 개수만큼 등분" : undefined)}
             value={v as string} onCommit={(nv) => run(setFeatureParam(f.id, k, nv))} />
         ))}
       <div className="row">
-        <button onClick={() => run(toggleSuppress(f.id))}>{f.suppressed ? "억제 해제" : "억제"}</button>
-        <button className="danger" onClick={onDelete}>삭제</button>
+        <button onClick={() => run(toggleSuppress(f.id))}>
+          <Icon name={f.suppressed ? "eye" : "eyeOff"} size={15} /> {f.suppressed ? "억제 해제" : "억제"}
+        </button>
+        <button className="danger" onClick={onDelete}><Icon name="trash" size={15} /> 삭제</button>
       </div>
-    </>
+    </Section>
   );
 }
 
@@ -339,10 +401,10 @@ function SketchPanel({ sketchId, doc, result, run }: { sketchId: string; doc: Ca
     run(updateSketch(sketchId, { ...sk, constraints: sk.constraints.map((k) => (k.id === kid && "value" in k ? { ...k, value } : k)) }));
   const remove = (kid: string) => run(updateSketch(sketchId, { ...sk, constraints: sk.constraints.filter((k) => k.id !== kid) }));
   return (
-    <>
-      <h3>스케치 편집 · {f.name} ({planeLabel(sk.plane)})</h3>
-      <p className="info">{statusText(result)}</p>
-      <h3>구속조건</h3>
+    <Section icon="sketch" title={`스케치 · ${f.name}`} count={sk.constraints.length}>
+      <p className="info">평면 {planeLabel(sk.plane)}</p>
+      <p className={`sk-state ${result?.status ?? ""}`}>{statusText(result)}</p>
+      <h4>구속조건</h4>
       {sk.constraints.length === 0 && <p className="info">아직 없습니다. 요소를 선택하고 위 버튼으로 추가하세요.</p>}
       <ul className="constraints">
         {sk.constraints.map((k) => (
@@ -355,7 +417,7 @@ function SketchPanel({ sketchId, doc, result, run }: { sketchId: string; doc: Ca
           </li>
         ))}
       </ul>
-    </>
+    </Section>
   );
 }
 
@@ -372,16 +434,19 @@ function statusText(r?: SolveResult) {
 }
 
 // 수식 입력칸: Enter나 포커스 이동 시 확정, Esc로 취소
-function ExprField({ label, value, onCommit, error }: { label: string; value: string; onCommit: (v: string) => void; error?: string }) {
+function ExprField({ label, value, onCommit, error, unit, hint }: {
+  label: string; value: string; onCommit: (v: string) => void; error?: string; unit?: string; hint?: string;
+}) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const commit = () => { if (draft.trim() && draft !== value) onCommit(draft.trim()); };
   return (
-    <label className="field">
-      {label && <span>{label}</span>}
+    <label className="field" title={hint}>
+      {label && <span>{label}{hint && <i className="q">?</i>}</span>}
       <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
         onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setDraft(value); }}
         className={error ? "bad" : ""} title={error} />
+      {unit && <span className="unit">{unit}</span>}
     </label>
   );
 }
@@ -417,7 +482,6 @@ function InspectPanel({ props }: { props: MassProps }) {
   const f = (v: number, d = 2) => v.toFixed(d);
   return (
     <>
-      <h3>검사</h3>
       <table className="props">
         <tbody>
           <tr><td>부피</td><td>{f(props.volume / 1000, 3)} cm³</td></tr>
