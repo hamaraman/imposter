@@ -1,13 +1,24 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { MeshData } from "@my-cad/kernel/src/build";
+import type { FaceInfo, MeshData } from "@my-cad/kernel/src/build";
 import { activeFeatures, planeTo3d, type CadDocument, type SketchData } from "@my-cad/core";
 
 // 명세 F-02: 궤도/이동/확대 뷰포트. CAD 관례대로 Z축이 위
-export function Viewport({ mesh, doc, highlight }: { mesh?: MeshData; doc?: CadDocument; highlight?: string }) {
+// pickFace가 있으면 "면 고르기" 모드: 평평한 면에 마우스를 올리면 강조되고, 클릭하면 그 면을 넘겨줌
+export function Viewport({ mesh, doc, highlight, pickFace }: {
+  mesh?: MeshData; doc?: CadDocument; highlight?: string; pickFace?: (face: FaceInfo) => void;
+}) {
   const host = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<{ scene: THREE.Scene; group: THREE.Group; sketches: THREE.Group; fit: () => void }>();
+  const sceneRef = useRef<{
+    scene: THREE.Scene; group: THREE.Group; sketches: THREE.Group; fit: () => void;
+    camera: THREE.PerspectiveCamera; dom: HTMLCanvasElement; hover: THREE.Mesh;
+  }>();
+  const bodyRef = useRef<THREE.Mesh>();
+  const pickRef = useRef(pickFace);
+  pickRef.current = pickFace;
+  const meshRef = useRef(mesh);
+  meshRef.current = mesh;
 
   useEffect(() => {
     const el = host.current!;
@@ -43,7 +54,56 @@ export function Viewport({ mesh, doc, highlight }: { mesh?: MeshData; doc?: CadD
       controls.target.copy(c);
       camera.position.copy(c).add(new THREE.Vector3(0.8, -1, 0.7).normalize().multiplyScalar(r * 1.6));
     };
-    sceneRef.current = { scene, group, sketches, fit };
+    // 면 강조용 반투명 메시 (면 고르기 모드에서만 보임)
+    const hover = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({
+      color: 0xf59e0b, transparent: true, opacity: 0.55, depthTest: false, side: THREE.DoubleSide,
+    }));
+    hover.visible = false;
+    scene.add(hover);
+    sceneRef.current = { scene, group, sketches, fit, camera, dom: renderer.domElement, hover };
+
+    // 화면 좌표 → 몸체의 면 번호 (삼각형 번호가 속한 faceGroup)
+    const ray = new THREE.Raycaster();
+    const faceAt = (ev: PointerEvent): number | undefined => {
+      const body = bodyRef.current, m = meshRef.current;
+      if (!body || !m) return undefined;
+      const r = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
+      const hit = ray.intersectObject(body)[0];
+      if (!hit || hit.faceIndex == null) return undefined;
+      const idx = hit.faceIndex * 3;
+      const g = m.faceGroups.findIndex((fg) => idx >= fg.start && idx < fg.start + fg.count);
+      return g < 0 ? undefined : g;
+    };
+    const showHover = (g: number | undefined) => {
+      const m = meshRef.current;
+      if (g === undefined || !m || !m.faces[g]?.planar) { hover.visible = false; return; }
+      const fg = m.faceGroups[g];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(m.vertices, 3));
+      geo.setIndex(new THREE.BufferAttribute(m.triangles.slice(fg.start, fg.start + fg.count), 1));
+      hover.geometry.dispose();
+      hover.geometry = geo;
+      hover.visible = true;
+    };
+    let down: { x: number; y: number } | undefined;
+    const onMove = (ev: PointerEvent) => {
+      if (!pickRef.current) { hover.visible = false; return; }
+      const g = faceAt(ev);
+      showHover(g);
+      renderer.domElement.style.cursor = g !== undefined && meshRef.current?.faces[g]?.planar ? "pointer" : "not-allowed";
+    };
+    const onDown = (ev: PointerEvent) => { down = { x: ev.clientX, y: ev.clientY }; };
+    const onUp = (ev: PointerEvent) => {
+      // 드래그(카메라 회전)가 아니라 클릭일 때만 고름
+      if (!pickRef.current || !down || Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 4) return;
+      const g = faceAt(ev);
+      const face = g === undefined ? undefined : meshRef.current?.faces[g];
+      if (face?.planar) { hover.visible = false; pickRef.current(face); }
+    };
+    renderer.domElement.addEventListener("pointermove", onMove);
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointerup", onUp);
 
     const resize = () => {
       renderer.setSize(el.clientWidth, el.clientHeight);
@@ -65,6 +125,7 @@ export function Viewport({ mesh, doc, highlight }: { mesh?: MeshData; doc?: CadD
     if (!s) return;
     s.group.children.forEach((c) => { (c as THREE.Mesh).geometry?.dispose(); });
     s.group.clear();
+    bodyRef.current = undefined;
     if (!mesh) return;
 
     const geo = new THREE.BufferGeometry();
@@ -78,8 +139,15 @@ export function Viewport({ mesh, doc, highlight }: { mesh?: MeshData; doc?: CadD
     edgeGeo.setAttribute("position", new THREE.BufferAttribute(mesh.edges, 3));
     const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x1f2a37 }));
     s.group.add(body, edges);
+    bodyRef.current = body;
     if (firstFit.current) { s.fit(); firstFit.current = false; }
   }, [mesh]);
+
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+    if (!pickFace) { s.hover.visible = false; s.dom.style.cursor = ""; }
+  }, [pickFace]);
 
   // 스케치를 3D 공간에 선으로 표시 (선택된 스케치는 주황색)
   useEffect(() => {

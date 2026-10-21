@@ -273,6 +273,9 @@ export function SketchEditor({ sketch, result, scope, onCommit, onExit }: Props)
       run: () => addConstraints([{ id: uid("k"), kind: "pointOnLine", point: selPoints[0], line: selLines[0].id }]) },
     { label: "고정", title: "점 1개 이상 (다시 누르면 해제)", enabled: sel.length > 0 && selPoints.length === sel.length,
       run: () => { commit({ ...sketch, points: sketch.points.map((p) => (selected.has(p.id) ? { ...p, fixed: !p.fixed } : p)) }); } },
+    { label: "보조선", title: "선택한 곡선을 보조선으로 (프로필에서 빠짐, 회전축 등에 사용) · 다시 누르면 해제",
+      enabled: selCurves.length > 0 && selCurves.length === sel.length,
+      run: () => { commit({ ...sketch, curves: sketch.curves.map((c) => (selected.has(c.id) ? { ...c, construction: !c.construction } : c)) }); } },
     { label: "치수", title: "선 1개(길이) · 점 2개(거리) · 원/호 1개(반지름)",
       enabled: (only(1) && selCurves.length === 1) || (only(2) && selPoints.length === 2),
       run: () => {

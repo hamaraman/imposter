@@ -69,25 +69,61 @@ export const updateSketch = (id: string, sketch: SketchData): Command => (doc) =
 };
 
 export const addExtrude = (sketchId: string, distance = "10"): Command => (doc) => {
-  const at = doc.rollbackIndex ?? doc.features.length;
-  const hasBody = doc.features.slice(0, at).some((f) => !f.suppressed && (f.type === "box" || f.type === "extrude"));
   const id = nextId(doc, "f");
   insertFeature(doc, { id, type: "extrude", name: `Extrude ${id.slice(1)}`, sketchId,
-    operation: hasBody ? "join" : "new", params: { distance } });
+    operation: hasBodyBefore(doc) ? "join" : "new", params: { distance } });
   return doc;
 };
 
-export const setExtrudeOperation = (id: string, operation: ExtrudeOperation): Command => (doc) => {
-  const f = doc.features.find((x) => x.id === id);
-  if (f?.type === "extrude") f.operation = operation;
+export const setExtrudeOperation = (id: string, operation: ExtrudeOperation): Command => setFeatureField(id, "operation", operation);
+
+// 수식이 아닌 선택형 필드(연산, 축, 원본 피처 등)를 바꿈
+export const setFeatureField = (id: string, key: string, value: string): Command => (doc) => {
+  const f = doc.features.find((x) => x.id === id) as unknown as Record<string, unknown> | undefined;
+  if (!f) throw new Error(`피처 없음: ${id}`);
+  if (key === "id" || key === "type" || key === "params" || key === "sketch") throw new Error(`바꿀 수 없는 필드: ${key}`);
+  f[key] = value;
+  return doc;
+};
+
+const hasBodyBefore = (doc: CadDocument) => {
+  const at = doc.rollbackIndex ?? doc.features.length;
+  return doc.features.slice(0, at).some((f) => !f.suppressed && (f.type === "box" || f.type === "extrude" || f.type === "revolve"));
+};
+
+export const addRevolve = (sketchId: string): Command => (doc) => {
+  const id = nextId(doc, "f");
+  insertFeature(doc, { id, type: "revolve", name: `Revolve ${id.slice(1)}`, sketchId, axis: "Y",
+    operation: hasBodyBefore(doc) ? "join" : "new", params: { angle: "360" } });
+  return doc;
+};
+
+export const addShell = (): Command => (doc) => {
+  const id = nextId(doc, "f");
+  insertFeature(doc, { id, type: "shell", name: `Shell ${id.slice(1)}`, openFace: "+Z", params: { thickness: "1" } });
+  return doc;
+};
+
+export const addPattern = (sourceId: string): Command => (doc) => {
+  const id = nextId(doc, "f");
+  insertFeature(doc, { id, type: "pattern", name: `Pattern ${id.slice(1)}`, sourceId, mode: "linear", axis: "X",
+    params: { count: "3", distance: "10", angle: "360" } });
+  return doc;
+};
+
+export const addMirror = (sourceId: string): Command => (doc) => {
+  const id = nextId(doc, "f");
+  insertFeature(doc, { id, type: "mirror", name: `Mirror ${id.slice(1)}`, sourceId, plane: "YZ", params: {} });
   return doc;
 };
 
 export const deleteFeature = (id: string): Command => (doc) => {
   const i = doc.features.findIndex((f) => f.id === id);
   if (i < 0) return doc;
-  if (doc.features.some((f) => f.type === "extrude" && f.sketchId === id))
-    throw new Error("이 스케치를 쓰는 돌출이 있어서 지울 수 없습니다. 돌출을 먼저 지우세요");
+  const user = doc.features.find((f) =>
+    ((f.type === "extrude" || f.type === "revolve") && f.sketchId === id) ||
+    ((f.type === "pattern" || f.type === "mirror") && f.sourceId === id));
+  if (user) throw new Error(`'${user.name}'이(가) 이 피처를 사용하고 있어서 지울 수 없습니다. 그 피처를 먼저 지우세요`);
   doc.features.splice(i, 1);
   if (doc.rollbackIndex !== undefined && i < doc.rollbackIndex) doc.rollbackIndex--;
   return doc;

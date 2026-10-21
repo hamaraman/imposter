@@ -16,9 +16,22 @@ export type Feature =
   | { id: string; type: "sketch"; name: string; suppressed?: boolean; params: Record<string, never>; sketch: SketchData }
   // 명세 F-08: 스케치의 닫힌 프로필을 돌출
   | { id: string; type: "extrude"; name: string; suppressed?: boolean; sketchId: string;
-      operation: ExtrudeOperation; params: { distance: string } };
+      operation: ExtrudeOperation; params: { distance: string } }
+  // 회전: 스케치 프로필을 축(스케치의 X/Y축 또는 스케치 안의 선) 둘레로 돌림
+  | { id: string; type: "revolve"; name: string; suppressed?: boolean; sketchId: string;
+      axis: string; operation: ExtrudeOperation; params: { angle: string } }
+  // 쉘: 바디 끝의 한 면을 열고 안쪽으로 두께만 남김
+  | { id: string; type: "shell"; name: string; suppressed?: boolean; openFace: ShellFace; params: { thickness: string } }
+  // 패턴: 앞선 돌출/회전의 결과를 직선 또는 원형으로 복제 (같은 연산 적용)
+  | { id: string; type: "pattern"; name: string; suppressed?: boolean; sourceId: string; mode: "linear" | "circular";
+      axis: Axis; params: { count: string; distance: string; angle: string } }
+  // 미러: 앞선 돌출/회전의 결과를 원점 평면에 대칭 복제
+  | { id: string; type: "mirror"; name: string; suppressed?: boolean; sourceId: string; plane: "XY" | "XZ" | "YZ";
+      params: Record<string, never> };
 
 export type ExtrudeOperation = "new" | "join" | "cut";
+export type Axis = "X" | "Y" | "Z";
+export type ShellFace = "+X" | "-X" | "+Y" | "-Y" | "+Z" | "-Z";
 
 export interface CadDocument {
   format: "my-cad/1";

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   History, newDocument, serialize, deserialize, setParameter, setFeatureParam, toggleSuppress, setRollback,
-  addSketch, updateSketch, addExtrude, setExtrudeOperation, deleteFeature, resolveParameters,
+  addSketch, updateSketch, addExtrude, addRevolve, addShell, addPattern, addMirror, setFeatureField, deleteFeature,
+  resolveParameters, planeFromNormal, planeLabel,
   type CadDocument, type Command, type ExtrudeOperation, type Feature, type SketchPlane, type Scope,
 } from "@my-cad/core";
 import { solveDocument, type SolveResult } from "@my-cad/sketch";
@@ -13,6 +14,11 @@ import { openTextFile, saveFile } from "./platform";
 
 const FEATURE_LABEL: Record<Feature["type"], string> = {
   box: "박스", fillet: "필렛", hole: "구멍", sketch: "스케치", extrude: "돌출",
+  revolve: "회전", shell: "쉘", pattern: "패턴", mirror: "미러",
+};
+const PARAM_LABEL: Record<string, string> = {
+  distance: "거리 (음수: 반대 방향)", angle: "각도 (°)", thickness: "두께", count: "개수", radius: "반지름",
+  diameter: "지름", width: "폭", depth: "깊이", height: "높이",
 };
 const OPERATION_LABEL: Record<ExtrudeOperation, string> = { new: "새 바디", join: "결합", cut: "잘라내기" };
 
@@ -26,6 +32,7 @@ export function App() {
   const [status, setStatus] = useState("커널 불러오는 중…");
   const [selectedId, setSelectedId] = useState<string>();
   const [editingId, setEditingId] = useState<string>();
+  const [picking, setPicking] = useState(false); // 면 위 스케치: 면 고르는 중
   const latest = useRef(0);
 
   useEffect(() => {
@@ -97,10 +104,20 @@ export function App() {
   };
 
   const newSketch = (plane: SketchPlane) => run(addSketch(plane, (id) => { setEditingId(id); setSelectedId(id); }));
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicking(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking]);
+  // 패턴·미러의 원본: 선택한 돌출/회전, 없으면 마지막 돌출/회전
+  const isTool = (f?: Feature) => f?.type === "extrude" || f?.type === "revolve";
   const selected = doc.features.find((f) => f.id === selectedId);
   const editing = solved?.doc.features.find((f) => f.id === editingId);
   const extrudeTarget = selected?.type === "sketch" ? selected.id
     : [...doc.features].reverse().find((f) => f.type === "sketch")?.id;
+  const patternSource = isTool(selected) ? selected!.id : [...doc.features].reverse().find(isTool)?.id;
+  const busyMode = !!editingId || picking;
 
   const errorOf = (id: string) => result?.errors.find((e) => e.featureId === id)?.message
     ?? (solved?.results[id]?.status === "over" ? solved.results[id].error ?? "구속 충돌" : undefined);
@@ -117,15 +134,24 @@ export function App() {
         <button onClick={redo} disabled={!history.canRedo} title="Ctrl+Y">↷ 다시 실행</button>
         <span className="sep" />
         <span className="menu">
-          <button disabled={!!editingId || !solverReady}>✎ 새 스케치 ▾</button>
-          <span className="menu-items">
-            {(["XY", "XZ", "YZ"] as SketchPlane[]).map((p) => (
+          <button disabled={busyMode || !solverReady}>✎ 새 스케치 ▾</button>
+          {/* 항목을 고르면 포커스를 풀어서 메뉴가 닫히게 함 */}
+          <span className="menu-items" onClick={() => (document.activeElement as HTMLElement | null)?.blur()}>
+            {(["XY", "XZ", "YZ"] as const).map((p) => (
               <button key={p} onClick={() => newSketch(p)}>{p} 평면</button>
             ))}
+            <button disabled={!result?.mesh} onClick={() => setPicking(true)}>면 선택…</button>
           </span>
         </span>
-        <button disabled={!!editingId || !extrudeTarget} onClick={() => extrudeTarget && run(addExtrude(extrudeTarget))}
+        <button disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addExtrude(extrudeTarget))}
           title="선택한 스케치(없으면 마지막 스케치)를 돌출">⬆ 돌출</button>
+        <button disabled={busyMode || !extrudeTarget} onClick={() => extrudeTarget && run(addRevolve(extrudeTarget))}
+          title="선택한 스케치(없으면 마지막 스케치)를 축 둘레로 회전">⟳ 회전</button>
+        <button disabled={busyMode || !result?.mesh} onClick={() => run(addShell())} title="바디 속을 비움">▢ 쉘</button>
+        <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addPattern(patternSource))}
+          title="선택한 돌출/회전(없으면 마지막 것)을 반복 복제">⋯ 패턴</button>
+        <button disabled={busyMode || !patternSource} onClick={() => patternSource && run(addMirror(patternSource))}
+          title="선택한 돌출/회전(없으면 마지막 것)을 대칭 복제">⇋ 미러</button>
         <span className="sep" />
         <button onClick={() => exportAs("stl")}>STL 내보내기</button>
         <button onClick={() => exportAs("step")}>STEP 내보내기</button>
@@ -156,8 +182,15 @@ export function App() {
             onCommit={(sk) => run(updateSketch(editing.id, sk))} onExit={() => setEditingId(undefined)} />
         ) : (
           <>
-            <Viewport mesh={result?.mesh} doc={solved?.doc} highlight={selectedId} />
+            <Viewport mesh={result?.mesh} doc={solved?.doc} highlight={selectedId}
+              pickFace={picking ? (face) => {
+                setPicking(false);
+                const r = (v: number) => Math.round(v * 1e6) / 1e6;
+                newSketch(planeFromNormal(face.origin.map(r) as [number, number, number], face.normal.map(r) as [number, number, number],
+                  `면 (${face.normal.map((v) => r(v)).join(", ")})`));
+              } : undefined} />
             {busy && <div className="busy">계산 중…</div>}
+            {picking && <div className="pick-hint">스케치할 <b>평평한 면</b>을 클릭하세요 · Esc 취소</div>}
           </>
         )}
       </main>
@@ -191,29 +224,50 @@ function FeaturePanel({ f, doc, result, error, run, onEdit, onDelete }: {
       {error && <p className="error">⚠ {error}</p>}
       {f.type === "sketch" && (
         <>
-          <p className="info">평면 {f.sketch.plane} · 곡선 {f.sketch.curves.length}개 · 구속 {f.sketch.constraints.length}개
+          <p className="info">평면 {planeLabel(f.sketch.plane)} · 곡선 {f.sketch.curves.length}개 · 구속 {f.sketch.constraints.length}개
             <br />{statusText(result)}</p>
           <button className="wide" onClick={onEdit}>✎ 스케치 편집</button>
         </>
       )}
-      {f.type === "extrude" && (
+      {(f.type === "extrude" || f.type === "revolve") && (
         <>
-          <label className="field">
-            <span>스케치</span>
-            <span>{doc.features.find((x) => x.id === f.sketchId)?.name ?? "(없음)"}</span>
-          </label>
-          <label className="field">
-            <span>연산</span>
-            <select value={f.operation} onChange={(e) => run(setExtrudeOperation(f.id, e.target.value as ExtrudeOperation))}>
-              {(Object.keys(OPERATION_LABEL) as ExtrudeOperation[]).map((o) => <option key={o} value={o}>{OPERATION_LABEL[o]}</option>)}
-            </select>
-          </label>
+          <Choice label="스케치" value={f.sketchId} onChange={(v) => run(setFeatureField(f.id, "sketchId", v))}
+            options={doc.features.filter((x) => x.type === "sketch").map((x) => [x.id, x.name])} />
+          <Choice label="연산" value={f.operation} onChange={(v) => run(setFeatureField(f.id, "operation", v))}
+            options={Object.entries(OPERATION_LABEL)} />
         </>
       )}
-      {Object.entries(f.params).map(([k, v]) => (
-        <ExprField key={k} label={k === "distance" ? "거리 (음수: 반대 방향)" : k} value={v as string}
-          onCommit={(nv) => run(setFeatureParam(f.id, k, nv))} />
-      ))}
+      {f.type === "revolve" && (
+        <Choice label="회전축" value={f.axis} onChange={(v) => run(setFeatureField(f.id, "axis", v))}
+          options={[["X", "스케치 X축"], ["Y", "스케치 Y축"], ...revolveAxisLines(doc, f.sketchId)]} />
+      )}
+      {f.type === "shell" && (
+        <Choice label="열 면" value={f.openFace} onChange={(v) => run(setFeatureField(f.id, "openFace", v))}
+          options={[["+Z", "위 (+Z)"], ["-Z", "아래 (−Z)"], ["+X", "+X 끝"], ["-X", "−X 끝"], ["+Y", "+Y 끝"], ["-Y", "−Y 끝"]]} />
+      )}
+      {(f.type === "pattern" || f.type === "mirror") && (
+        <Choice label="원본" value={f.sourceId} onChange={(v) => run(setFeatureField(f.id, "sourceId", v))}
+          options={doc.features.filter((x) => (x.type === "extrude" || x.type === "revolve") && doc.features.indexOf(x) < doc.features.indexOf(f))
+            .map((x) => [x.id, x.name])} />
+      )}
+      {f.type === "pattern" && (
+        <>
+          <Choice label="종류" value={f.mode} onChange={(v) => run(setFeatureField(f.id, "mode", v))}
+            options={[["linear", "직선"], ["circular", "원형 (원점 축 둘레)"]]} />
+          <Choice label={f.mode === "linear" ? "방향" : "회전축"} value={f.axis} onChange={(v) => run(setFeatureField(f.id, "axis", v))}
+            options={[["X", "X"], ["Y", "Y"], ["Z", "Z"]]} />
+        </>
+      )}
+      {f.type === "mirror" && (
+        <Choice label="대칭 평면" value={f.plane} onChange={(v) => run(setFeatureField(f.id, "plane", v))}
+          options={[["YZ", "YZ (X 뒤집기)"], ["XZ", "XZ (Y 뒤집기)"], ["XY", "XY (Z 뒤집기)"]]} />
+      )}
+      {Object.entries(f.params)
+        .filter(([k]) => f.type !== "pattern" || (f.mode === "linear" ? k !== "angle" : k !== "distance"))
+        .map(([k, v]) => (
+          <ExprField key={k} label={f.type === "pattern" && k === "distance" ? "간격" : f.type === "pattern" && k === "angle" ? "전체 각도 (360 = 한 바퀴)" : PARAM_LABEL[k] ?? k}
+            value={v as string} onCommit={(nv) => run(setFeatureParam(f.id, k, nv))} />
+        ))}
       <div className="row">
         <button onClick={() => run(toggleSuppress(f.id))}>{f.suppressed ? "억제 해제" : "억제"}</button>
         <button className="danger" onClick={onDelete}>삭제</button>
@@ -232,7 +286,7 @@ function SketchPanel({ sketchId, doc, result, run }: { sketchId: string; doc: Ca
   const remove = (kid: string) => run(updateSketch(sketchId, { ...sk, constraints: sk.constraints.filter((k) => k.id !== kid) }));
   return (
     <>
-      <h3>스케치 편집 · {f.name} ({sk.plane})</h3>
+      <h3>스케치 편집 · {f.name} ({planeLabel(sk.plane)})</h3>
       <p className="info">{statusText(result)}</p>
       <h3>구속조건</h3>
       {sk.constraints.length === 0 && <p className="info">아직 없습니다. 요소를 선택하고 위 버튼으로 추가하세요.</p>}
@@ -276,4 +330,27 @@ function ExprField({ label, value, onCommit, error }: { label: string; value: st
         className={error ? "bad" : ""} title={error} />
     </label>
   );
+}
+
+function Choice({ label, value, options, onChange }: { label: string; value: string; options: [string, string][]; onChange: (v: string) => void }) {
+  const known = options.some(([v]) => v === value);
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {!known && <option value={value}>(없음)</option>}
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
+// 회전축 후보: 스케치 안의 선들 (보조선을 먼저)
+function revolveAxisLines(doc: CadDocument, sketchId: string): [string, string][] {
+  const sk = doc.features.find((x) => x.id === sketchId);
+  if (sk?.type !== "sketch") return [];
+  return sk.sketch.curves
+    .filter((c) => c.kind === "line")
+    .sort((a, b) => Number(!!b.construction) - Number(!!a.construction))
+    .map((c, i) => [c.id, `${c.construction ? "보조선" : "선"} ${i + 1}`]);
 }

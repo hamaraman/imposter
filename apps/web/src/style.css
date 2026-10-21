@@ -27,7 +27,7 @@ fieldset.dim { opacity: .45; }
 /* M1: 메뉴, 선택, 속성 패널 */
 .menu { position: relative; }
 .menu-items { display: none; position: absolute; top: 100%; left: 0; z-index: 10; background: #334155; border-radius: 4px; padding: 4px; flex-direction: column; gap: 2px; min-width: 110px; }
-.menu:hover .menu-items, .menu:focus-within .menu-items { display: flex; }
+.menu:hover .menu-items { display: flex; }
 .chip.sel { border-color: #f59e0b; box-shadow: 0 0 0 2px #fde68a; }
 .panel select { width: 120px; padding: 3px; }
 .panel .row { display: flex; gap: 6px; margin-top: 10px; }
@@ -63,3 +63,5 @@ fieldset.dim { opacity: .45; }
 .sketch-editor .dim.bad { fill: #dc2626; }
 .dim-input { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 6px; align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 16px #0002; }
 .dim-input input { width: 120px; padding: 3px 6px; font-family: ui-monospace, monospace; }
+.pick-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: #f59e0b; color: #1f2a37; padding: 6px 14px; border-radius: 16px; box-shadow: 0 2px 8px #0003; }
+.toolbar button:disabled { opacity: .4; }
