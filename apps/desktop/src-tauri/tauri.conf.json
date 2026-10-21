@@ -17,7 +17,7 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "fileAssociations": [{ "ext": ["mycad"], "name": "MyCAD Design", "description": "MyCAD 설계 파일", "role": "Editor" }],
+    "fileAssociations": [{ "ext": ["mycad"], "name": "MyCAD Design", "description": "MyCAD design file", "role": "Editor" }],
     "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
   }
 }

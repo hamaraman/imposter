@@ -31,7 +31,15 @@ jobs:
       - name: 오라클 테스트
         run: pnpm test
       - name: 설치파일 빌드
-        run: pnpm desktop:build
+        shell: bash
+        # 실패하면 로그 끝부분을 주석(annotation)으로 남겨서 API로도 원인을 볼 수 있게 함
+        run: |
+          set -o pipefail
+          pnpm desktop:build 2>&1 | tee build.log || {
+            grep -iE "error|failed|warning: " build.log | tail -40 | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+            tail -20 build.log | while IFS= read -r line; do echo "::warning::${line//%/%25}"; done
+            exit 1
+          }
 
       - uses: actions/upload-artifact@v4
         with:
